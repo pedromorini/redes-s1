@@ -31,11 +31,7 @@ Nós configuramos a Zybo Z7-20 para disponibilizar 8 interfaces seriais em cada 
 
 # Orientações gerais
 
-Como o ambiente é compartilhado, algumas **orientações gerais muito importantes**:
-
- * Antes de começar a trabalhar, observe se não há ninguém usando aquela placa naquele momento (use o comando `w`). Se tiver alguém usando, tente olhar as placas da outra mesa.
-
- * Se você usa `tmux` ou `screen`, não deixe nenhuma sessão detachada ao terminar de usar a placa, para deixar claro que aquela placa está livre.
+Como as placas são compartilhadas, algumas **orientações gerais muito importantes**:
 
  * Crie um diretório para o seu grupo trabalhar.
 
