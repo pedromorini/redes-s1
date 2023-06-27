@@ -3,7 +3,7 @@
 Neste trabalho, vamos juntar todas as camadas que implementamos até agora e depois testar o funcionamento em uma rede física real!
 
 
-# Por que o grupo é de até 8 pessoas?
+# Por que o grupo é de até 10 pessoas?
 
 Para vocês terem a liberdade de testar várias implementações diferentes de P1, P2, P3 e P4, afinal esse trabalho consiste em juntar as diversas camadas.
 
