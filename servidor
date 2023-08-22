@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+import asyncio
+from tcp import Servidor
+import re
+
+dados_residuais = {}
+usuarios = {}
+canais = {}
+
+def validar_nome(nome):
+    return re.match(br'^[a-zA-Z][a-zA-Z0-9_-]*$', nome) is not None
+
+
+def sair(conexao):
+    print(conexao, 'conexão fechada')
+
+    if conexao in usuarios:
+
+        lista_canais = []
+
+        for canal in canais:
+            if usuarios[conexao] in canais[canal]:
+                lista_canais.append(canal)
+
+        for canal in lista_canais:
+            for user in canais[canal]:
+                if user != usuarios[conexao]:
+                    conex = busca_conexao(user)[0]
+                    conex.enviar(b':' + usuarios[conexao] + b' QUIT :Connection closed\r\n')
+
+            canais[canal].remove(usuarios[conexao])
+            canais[canal].sort()
+
+        del usuarios[conexao]
+
+    conexao.fechar()
+
+
+def dados_recebidos(conexao, dados):
+
+    global dados_residuais
+    global usuarios
+    global canais
+
+    if dados == b'':
+        return sair(conexao)
+
+    if not conexao in dados_residuais:
+        dados_residuais[conexao] = b''
+    
+    mensagens = dados.split(b'\r\n')
+
+    if dados_residuais[conexao] != b'':
+        mensagens[0] = dados_residuais[conexao] + mensagens[0]
+        dados_residuais[conexao] = b''
+
+    if mensagens[-1] != b'':
+        dados_residuais[conexao] = dados_residuais[conexao] + mensagens[-1]
+        mensagens[-1] = b''
+
+    if dados_residuais[conexao].endswith(b'\r\n'):
+        mensagens.insert(0, dados_residuais[conexao])
+        dados_residuais[conexao] = b''
+
+    for mensagem in mensagens:
+        if not len(mensagem):
+            continue
+
+        msg = mensagem.split(b' ', 1)[1]
+
+        if mensagem.startswith(b'PING'):
+            conexao.enviar(b':server PONG server :' + msg + b'\r\n')
+
+        elif mensagem.startswith(b'NICK'):
+
+            if conexao in usuarios:
+                apelido_atual = usuarios[conexao]
+            else:
+                apelido_atual = b'*'
+
+            if not validar_nome(msg):
+                conexao.enviar(b':server 432 * ' + msg + b' :Erroneous nickname\r\n')
+            elif verifica_apelido(msg):
+              conexao.enviar(b':server 433 ' + apelido_atual + b' ' + msg + b' :Nickname is already in use\r\n')
+            else:
+                if not conexao in usuarios:
+                    conexao.enviar(b':server 001 ' + msg + b' :Welcome\r\n')
+                    conexao.enviar(b':server 422 ' + msg + b' :MOTD File is missing\r\n')
+                else:
+                    conexao.enviar(b':' + apelido_atual + b' NICK ' + msg + b'\r\n') 
+                usuarios[conexao] = msg
+
+        elif mensagem.startswith(b'PRIVMSG'):
+            
+            destino, conteudo = msg.split(b' :',1)
+            conexoes = []
+            if destino.startswith(b'#'):
+
+                for canal, x in canais.items():
+                    if canal.lower() == destino.lower():
+                      if canal in canais:
+                          for usuario in canais[canal]:
+                              if not usuario == usuarios[conexao]:
+                                  conexoes.append(busca_conexao(usuario)[0])
+    
+            else:
+                if verifica_apelido(destino):
+                    conexoes = busca_conexao(destino)
+
+            for conex in conexoes:
+                conex.enviar(b':' + usuarios[conexao] + b' PRIVMSG ' + destino + b' :' + conteudo + b'\r\n')
+                
+        elif mensagem.startswith(b'JOIN'):
+            
+            if msg.startswith(b'#') and validar_nome(msg[1:]):
+
+                if not msg in canais:
+                    canais[msg] = []
+
+                canais[msg].append(usuarios[conexao])
+                canais[msg].sort()
+
+                for user in canais[msg]:
+                    conex = busca_conexao(user)[0]
+                    conex.enviar(b':' + usuarios[conexao] + b' JOIN :' + msg + b'\r\n')
+
+                tam_max = 512 - len(b':server 353 ' + usuarios[conexao] + b' = ' + msg + b' :\r\n')
+        
+                lista_membros = [b'']
+        
+                for user in canais[msg]:
+                    lista = (lista_membros[-1] + b' ' + user).strip()
+                    if len(lista) < tam_max:
+                        lista_membros[-1] = lista
+                    else:
+                        lista_membros.append(user)
+        
+                for membros in lista_membros:
+                    response = b':server 353 %s = %s :%s\r\n' % (usuarios[conexao], msg, membros)
+                    conexao.enviar(response)
+
+                conexao.enviar(b':server 366 ' + usuarios[conexao] + b' ' + msg + b' :End of /NAMES list.\r\n')
+
+            else:
+                conexao.enviar(b':server 403 ' + msg + b':No such channel\r\n')
+
+        elif mensagem.startswith(b'PART'):
+
+            canal = msg.split(b' ',1)[0]
+
+            if canal.startswith(b'#') and validar_nome(canal[1:]):      
+                
+                if canal in canais or usuarios[conexao] in canais[canal]:
+                    for user in canais[canal]:
+                        conex = busca_conexao(user)[0]
+                        conex.enviar(b':' + usuarios[conexao] + b' PART ' + canal + b'\r\n')
+
+                    canais[canal].remove(usuarios[conexao])
+                    canais[canal].sort()
+            else:
+                conexao.enviar(b':server 403 ' + msg + b':No such channel\r\n')
+
+
+def busca_conexao(msg):
+    conexoes = []
+    for conex, usr in usuarios.items():
+        if usr.lower() == msg.lower():
+            conexoes.append(conex)
+    return conexoes
+
+def verifica_apelido(msg):
+    for user in list(usuarios.values()):
+        if user.lower() == msg.lower():
+            return 1
+
+def conexao_aceita(conexao):
+    print(conexao, 'nova conexão')
+    conexao.registrar_recebedor(dados_recebidos)
+
+
+servidor = Servidor(6667)
+servidor.registrar_monitor_de_conexoes_aceitas(conexao_aceita)
+asyncio.get_event_loop().run_forever()
